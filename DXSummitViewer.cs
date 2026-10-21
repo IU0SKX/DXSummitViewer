@@ -15,8 +15,8 @@ using System.Windows.Forms;
 [assembly: System.Reflection.AssemblyProduct("Dx Summit Viewer by IU0SKX")]
 [assembly: System.Reflection.AssemblyCompany("IU0SKX")]
 [assembly: System.Reflection.AssemblyCopyright("Copyright © 2026 IU0SKX")]
-[assembly: System.Reflection.AssemblyVersion("1.0.0.0")]
-[assembly: System.Reflection.AssemblyFileVersion("1.0.0.0")]
+[assembly: System.Reflection.AssemblyVersion("1.1.0.0")]
+[assembly: System.Reflection.AssemblyFileVersion("1.1.0.0")]
 
 namespace DXSummitViewer
 {
@@ -155,6 +155,25 @@ namespace DXSummitViewer
         {
             get { return Read("theme") == "dark"; }
             set { Write("theme", value ? "dark" : "light"); }
+        }
+
+        // Server RigCtld per sintonizzare la radio con il doppio clic
+        public static string RigHost
+        {
+            get { var v = Read("righost"); return v == "" ? "127.0.0.1" : v; }
+            set { Write("righost", value); }
+        }
+
+        public static int RigPort
+        {
+            get { int p; return int.TryParse(Read("rigport"), out p) && p > 0 && p < 65536 ? p : RigCtl.DefaultPort; }
+            set { Write("rigport", value.ToString()); }
+        }
+
+        public static bool RigEnabled
+        {
+            get { return Read("rigenabled") == "1"; }
+            set { Write("rigenabled", value ? "1" : "0"); }
         }
     }
 
@@ -480,6 +499,149 @@ namespace DXSummitViewer
         }
     }
 
+    // Impostazioni del collegamento alla radio tramite RigCtld
+    public class SettingsForm : Form
+    {
+        readonly FieldBox fbHost = new FieldBox("127.0.0.1");
+        readonly FieldBox fbPort = new FieldBox(RigCtl.DefaultPort.ToString());
+        readonly ToggleSwitch chkEnabled = new ToggleSwitch();
+        readonly ModernButton btnTest = new ModernButton();
+        readonly ModernButton btnSave = new ModernButton();
+        readonly ModernButton btnCancel = new ModernButton();
+        readonly Label lblMsg = new Label();
+
+        public SettingsForm()
+        {
+            Text = "Impostazioni";
+            Icon = MainForm.AppIcon;
+            FormBorderStyle = FormBorderStyle.FixedDialog;
+            MaximizeBox = false;
+            MinimizeBox = false;
+            ShowInTaskbar = false;
+            StartPosition = FormStartPosition.CenterParent;
+            Font = new Font("Segoe UI", 9F);
+            ClientSize = new Size(420, 260);
+
+            var layout = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(16, 14, 16, 12), ColumnCount = 2 };
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+
+            var title = new Label { Text = "Controllo radio (RigCtld)", AutoSize = true, Font = new Font("Segoe UI Semibold", 10F), Margin = new Padding(0, 0, 0, 2) };
+            var hint = new CaptionLabel("Doppio clic su uno spot per portare la radio sulla sua frequenza e sul suo modo, tramite un server RigCtld (Hamlib, vfview…).")
+            {
+                AutoSize = false,
+                Size = new Size(380, 32),
+                Margin = new Padding(0, 0, 0, 8)
+            };
+            layout.Controls.Add(title); layout.SetColumnSpan(title, 2);
+            layout.Controls.Add(hint); layout.SetColumnSpan(hint, 2);
+
+            fbHost.TextBox.Text = Settings.RigHost;
+            fbPort.TextBox.Text = Settings.RigPort.ToString();
+            fbPort.TextBox.MaxLength = 5;
+            fbPort.Width = 90;
+            chkEnabled.Text = "Sintonizza la radio con il doppio clic";
+            chkEnabled.Checked = Settings.RigEnabled;
+
+            AddRow(layout, "Indirizzo IP", fbHost, true);
+            AddRow(layout, "Porta", fbPort, false);
+            chkEnabled.Margin = new Padding(0, 6, 0, 2);
+            layout.Controls.Add(chkEnabled); layout.SetColumnSpan(chkEnabled, 2);
+
+            lblMsg.AutoSize = true;
+            lblMsg.Margin = new Padding(0, 6, 0, 0);
+            layout.Controls.Add(lblMsg); layout.SetColumnSpan(lblMsg, 2);
+
+            btnTest.Text = "Prova connessione";
+            btnTest.Click += delegate { Test(); };
+            btnSave.Text = "Salva";
+            btnSave.Accent = true;
+            btnSave.Click += delegate { Save(); };
+            btnCancel.Text = "Annulla";
+            btnCancel.DialogResult = DialogResult.Cancel;
+
+            var buttons = new FlowLayoutPanel { FlowDirection = FlowDirection.RightToLeft, Dock = DockStyle.Fill, AutoSize = true, Margin = new Padding(0, 10, 0, 0) };
+            buttons.Controls.Add(btnCancel);
+            buttons.Controls.Add(btnSave);
+            buttons.Controls.Add(btnTest);
+            foreach (Control c in buttons.Controls) c.Margin = new Padding(6, 0, 0, 0);
+            layout.Controls.Add(buttons); layout.SetColumnSpan(buttons, 2);
+
+            Controls.Add(layout);
+            AcceptButton = btnSave;
+            CancelButton = btnCancel;
+            Theme.Apply(this);
+        }
+
+        static void AddRow(TableLayoutPanel layout, string label, Control c, bool stretch)
+        {
+            layout.Controls.Add(new Label { Text = label, AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(0, 0, 10, 0) });
+            c.Anchor = stretch ? AnchorStyles.Left | AnchorStyles.Right : AnchorStyles.Left;
+            c.Margin = new Padding(0, 4, 0, 4);
+            layout.Controls.Add(c);
+        }
+
+        bool ReadFields(out string host, out int port)
+        {
+            host = fbHost.TextBox.Text.Trim();
+            lblMsg.ForeColor = Theme.Danger;
+            if (!int.TryParse(fbPort.TextBox.Text.Trim(), out port) || port < 1 || port > 65535)
+            {
+                lblMsg.Text = "Porta non valida (1-65535).";
+                return false;
+            }
+            if (host == "")
+            {
+                lblMsg.Text = "Inserisci l'indirizzo del server RigCtld.";
+                return false;
+            }
+            return true;
+        }
+
+        void Test()
+        {
+            string host; int port;
+            if (!ReadFields(out host, out port)) return;
+            btnTest.Enabled = false;
+            lblMsg.ForeColor = Theme.Text;
+            lblMsg.Text = "Connessione a " + host + ":" + port + "...";
+            System.Threading.ThreadPool.QueueUserWorkItem(delegate
+            {
+                string msg; bool ok;
+                try
+                {
+                    long? hz = RigCtl.GetFrequency(host, port);
+                    ok = true;
+                    msg = hz.HasValue
+                        ? "Connesso. Frequenza attuale della radio: " + (hz.Value / 1000.0).ToString("N1", CultureInfo.GetCultureInfo("it-IT")) + " kHz"
+                        : "Connesso, ma il server non ha restituito la frequenza.";
+                }
+                catch (Exception ex)
+                {
+                    ok = false;
+                    msg = "Connessione non riuscita: " + ex.Message;
+                }
+                if (!IsDisposed)
+                    BeginInvoke((MethodInvoker)delegate
+                    {
+                        btnTest.Enabled = true;
+                        lblMsg.ForeColor = ok ? Theme.Accent : Theme.Danger;
+                        lblMsg.Text = msg;
+                    });
+            });
+        }
+
+        void Save()
+        {
+            string host; int port;
+            if (!ReadFields(out host, out port)) return;
+            Settings.RigHost = host;
+            Settings.RigPort = port;
+            Settings.RigEnabled = chkEnabled.Checked;
+            DialogResult = DialogResult.OK;
+        }
+    }
+
     // Finestra Informazioni: icona, nome del software e versione (letti dagli attributi dell'assembly)
     public class AboutForm : Form
     {
@@ -527,7 +689,8 @@ namespace DXSummitViewer
                 Anchor = AnchorStyles.None,
                 Font = new Font("Segoe UI Semibold", 12F)
             };
-            var lblVersion = new CaptionLabel("Versione " + asm.GetName().Version.ToString(3))
+            var ver = asm.GetName().Version;
+            var lblVersion = new CaptionLabel("Versione " + ver.ToString(ver.Build > 0 ? 3 : 2)) // "1.1", "1.1.2"
             {
                 Anchor = AnchorStyles.None,
                 Font = new Font("Segoe UI", 9F),
@@ -585,6 +748,7 @@ namespace DXSummitViewer
         readonly ModernButton btnSpot = new ModernButton();
         readonly ModernButton btnTheme = new ModernButton();
         readonly ModernButton btnInfo = new ModernButton();
+        readonly ModernButton btnSettings = new ModernButton();
         readonly ToolTip toolTip = new ToolTip();
 
         TextBox tbCall { get { return fbCall.TextBox; } }
@@ -714,6 +878,17 @@ namespace DXSummitViewer
             btnSpot.Font = new Font(Font, FontStyle.Bold);
             btnSpot.Click += delegate { OpenSpotForm(null, null); };
 
+            btnSettings.IconPainter = Ui.DrawGearIcon;
+            toolTip.SetToolTip(btnSettings, "Impostazioni (controllo radio)");
+            btnSettings.Click += delegate
+            {
+                using (var f = new SettingsForm())
+                    if (f.ShowDialog(this) == DialogResult.OK)
+                        lblStatus.Text = Settings.RigEnabled
+                            ? "Doppio clic su uno spot: sintonizza la radio via RigCtld " + Settings.RigHost + ":" + Settings.RigPort
+                            : "Controllo radio disattivato: il doppio clic copia il nominativo";
+            };
+
             btnInfo.IconPainter = Ui.DrawInfoIcon;
             toolTip.SetToolTip(btnInfo, "Informazioni");
             btnInfo.Click += delegate
@@ -721,7 +896,6 @@ namespace DXSummitViewer
                 using (var f = new AboutForm()) f.ShowDialog(this);
             };
 
-            btnTheme.Font = new Font("Segoe UI Symbol", 9F); // contiene i simboli sole/luna
             btnTheme.Click += delegate
             {
                 Theme.Dark = !Theme.Dark;
@@ -740,7 +914,7 @@ namespace DXSummitViewer
             auto.Margin = new Padding(12, 0, 10, 4); // stacco tra filtri e opzioni di aggiornamento
             panel.Controls.Add(auto);
             panel.Controls.Add(Group("Numero Spot", cbLimit));
-            panel.Controls.Add(Group(" ", btnRefresh, btnSpot, btnTheme, btnInfo));
+            panel.Controls.Add(Group(" ", btnRefresh, btnSpot, btnTheme, btnSettings, btnInfo));
             Controls.Add(panel);
         }
 
@@ -800,6 +974,11 @@ namespace DXSummitViewer
             grid.CellDoubleClick += (s, e) =>
             {
                 if (e.RowIndex < 0) return;
+                if (Settings.RigEnabled)
+                {
+                    TuneRig(grid.Rows[e.RowIndex]);
+                    return;
+                }
                 var call = Convert.ToString(grid.Rows[e.RowIndex].Cells["DX"].Value);
                 if (string.IsNullOrEmpty(call)) return;
                 try
@@ -811,6 +990,10 @@ namespace DXSummitViewer
             };
 
             var menu = new ContextMenuStrip();
+            menu.Items.Add("Sintonizza la radio", null, delegate
+            {
+                if (grid.CurrentRow != null) TuneRig(grid.CurrentRow);
+            });
             menu.Items.Add("Copia nominativo DX", null, delegate { CopySelected("DX"); });
             menu.Items.Add("Copia frequenza", null, delegate { CopySelected("Freq"); });
             menu.Items.Add("Apri su QRZ.com", null, delegate
@@ -888,9 +1071,56 @@ namespace DXSummitViewer
             }
         }
 
+        // Porta la radio sulla frequenza e sul modo dello spot tramite RigCtld (in background, esito nella barra di stato)
+        void TuneRig(DataGridViewRow row)
+        {
+            double khz;
+            string call = Convert.ToString(row.Cells["DX"].Value);
+            if (!double.TryParse(Convert.ToString(row.Cells["Freq"].Value), NumberStyles.Float, CultureInfo.InvariantCulture, out khz))
+                return;
+            string mode = RigCtl.HamlibMode(Convert.ToString(row.Cells["Mode"].Value), khz);
+            string host = Settings.RigHost;
+            int port = Settings.RigPort;
+            string freqText = khz.ToString("N1", CultureInfo.GetCultureInfo("it-IT")) + " kHz";
+            lblStatus.Text = "Sintonizzazione su " + freqText + (mode != null ? " " + mode : "") + " (" + call + ")...";
+            System.Threading.ThreadPool.QueueUserWorkItem(delegate
+            {
+                string msg;
+                try
+                {
+                    // il modo prima della frequenza: su alcune radio il cambio di modo sposta la frequenza
+                    string modeErr = null, setMode = mode;
+                    if (mode != null)
+                    {
+                        modeErr = RigCtl.SetMode(host, port, mode);
+                        if (modeErr != null && mode == "PKTUSB")
+                        {
+                            setMode = "USB";
+                            modeErr = RigCtl.SetMode(host, port, setMode);
+                        }
+                    }
+                    string err = RigCtl.SetFrequency(host, port, khz);
+                    if (err != null)
+                        msg = "Radio non sintonizzata: " + err;
+                    else if (modeErr != null)
+                        msg = "Radio sintonizzata su " + freqText + " (" + call + "), ma " + modeErr;
+                    else
+                        msg = "Radio sintonizzata su " + freqText + (setMode != null ? " " + setMode : "") + " (" + call + ")";
+                }
+                catch (Exception ex)
+                {
+                    msg = "Radio non sintonizzata: impossibile collegarsi a RigCtld " + host + ":" + port + " (" + ex.Message + ")";
+                }
+                if (!IsDisposed)
+                    BeginInvoke((MethodInvoker)delegate { lblStatus.Text = msg; });
+            });
+        }
+
         void UpdateThemeButton()
         {
-            btnTheme.Text = Theme.Dark ? "☀ Tema chiaro" : "☾ Tema scuro";
+            // icona del tema verso cui si passa, come il testo che c'era prima
+            btnTheme.IconPainter = Theme.Dark ? (Action<Graphics, Rectangle, Color>)Ui.DrawSunIcon : Ui.DrawMoonIcon;
+            toolTip.SetToolTip(btnTheme, Theme.Dark ? "Tema chiaro" : "Tema scuro");
         }
 
         void OpenSpotForm(string dxCall, string freq)

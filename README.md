@@ -1,6 +1,6 @@
 # Dx Summit Viewer
 
-Applicazione per Windows che mostra in tempo reale gli spot del cluster [DX Summit](https://www.dxsummit.fi/), con filtri per paese, nominativo, banda e modo e la possibilità di inviare nuovi spot.
+Applicazione per Windows che mostra in tempo reale gli spot del cluster [DX Summit](https://www.dxsummit.fi/), con filtri per paese, nominativo, banda e modo. Permette di inviare nuovi spot e di sintonizzare la radio su uno spot con un doppio clic, tramite RigCtld.
 
 Un solo file `.exe` di circa 150 KB, senza installazione e senza dipendenze esterne.
 
@@ -21,8 +21,9 @@ Un solo file `.exe` di circa 150 KB, senza installazione e senza dipendenze este
 - **Filtro per banda**: da 2200m a 23cm.
 - **Filtro per modo**: CW, SSB, FT8, FT4, RTTY, PSK, Digi, FM, AM, SSTV.
 - **Invio di spot** a DX Summit, con conferma prima dell'invio. Il proprio nominativo viene ricordato.
-- **Menu con il tasto destro** su uno spot: copia nominativo o frequenza, apri il nominativo su QRZ.com, spotta di nuovo lo stesso DX, filtra per quel paese. Il doppio clic copia il nominativo.
-- **Tema chiaro e scuro**, con la scelta ricordata al successivo avvio.
+- **Controllo della radio via RigCtld**: con un doppio clic su uno spot, la radio si porta sulla sua frequenza e sul suo modo tramite un server RigCtld (Hamlib `rigctld`, vfview o altri programmi compatibili). Vedi [Controllo radio](#controllo-radio-rigctld).
+- **Menu con il tasto destro** su uno spot: sintonizza la radio, copia nominativo o frequenza, apri il nominativo su QRZ.com, spotta di nuovo lo stesso DX, filtra per quel paese. Se il controllo radio è disattivato, il doppio clic copia il nominativo.
+- **Tema chiaro e scuro** (icona sole/luna), con la scelta ricordata al successivo avvio.
 - Colonne ordinabili cliccando sull'intestazione. Lo spot selezionato resta selezionato anche dopo gli aggiornamenti.
 
 ## Requisiti
@@ -38,6 +39,28 @@ Un solo file `.exe` di circa 150 KB, senza installazione e senza dipendenze este
 
 > **Nota:** l'eseguibile non ha una firma digitale, quindi al primo avvio Windows SmartScreen potrebbe mostrare l'avviso *"Windows ha protetto il PC"*. Per avviarlo comunque: *Ulteriori informazioni* → *Esegui comunque*.
 
+## Controllo radio (RigCtld)
+
+L'app può comandare la radio tramite il protocollo di rete di [Hamlib](https://hamlib.github.io/) `rigctld`. Lo usano direttamente `rigctld` e i programmi che espongono un server compatibile, come vfview.
+
+1. Avviare il server RigCtld (`rigctld`, vfview…) collegato alla radio.
+2. Nell'app, cliccare l'icona a ingranaggio e inserire indirizzo IP e porta del server (default `127.0.0.1` e `4532`).
+3. *Prova connessione* verifica il collegamento e mostra la frequenza attuale della radio.
+4. Attivare *Sintonizza la radio con il doppio clic* e salvare.
+
+Da quel momento il doppio clic su uno spot (o *Sintonizza la radio* nel menu del tasto destro) imposta sulla radio il modo dello spot (`M <modo> 0`) e poi la sua frequenza (`F <frequenza in Hz>`). L'esito compare nella barra di stato in basso.
+
+| Modo dello spot | Modo impostato sulla radio |
+|---|---|
+| SSB su 160, 80 e 40 m | LSB |
+| SSB sulle altre bande (60 m compresi) | USB |
+| CW, FM, AM, RTTY | lo stesso modo |
+| FT8, FT4, PSK, altri digitali | USB-Data (`PKTUSB`), oppure USB se la radio non lo supporta |
+| SSTV | USB |
+| modo non riconosciuto | invariato (viene impostata solo la frequenza) |
+
+Il modo viene impostato prima della frequenza perché su alcune radio il cambio di modo sposta leggermente la frequenza. Il modo dello spot è ricavato dal commento o dal band plan (vedi sotto), quindi in qualche caso può non corrispondere a quello effettivo.
+
 ## Come vengono determinati banda e modo
 
 L'API di DX Summit fornisce la frequenza ma non il modo di emissione.
@@ -52,7 +75,7 @@ Per gli spot senza indicazioni nel commento il modo è quindi una stima.
 
 ## Impostazioni salvate
 
-Il programma salva solo il proprio nominativo (per l'invio degli spot) e il tema scelto, in file di testo nella cartella:
+Il programma salva solo il proprio nominativo (per l'invio degli spot), il tema scelto e le impostazioni di RigCtld (indirizzo, porta, attivazione), in file di testo nella cartella:
 
 ```
 %APPDATA%\DXSummitViewer\
@@ -79,8 +102,9 @@ build.bat
 
 | File | Contenuto |
 |---|---|
-| `DXSummitViewer.cs` | Finestra principale, lettura e filtro degli spot, invio spot, tema, finestra Informazioni |
-| `UiControls.cs` | Controlli disegnati a mano che seguono il tema (menu a tendina, campi, interruttori, pulsanti) |
+| `DXSummitViewer.cs` | Finestra principale, lettura e filtro degli spot, invio spot, tema, finestre Impostazioni e Informazioni |
+| `UiControls.cs` | Controlli disegnati a mano che seguono il tema (menu a tendina, campi, interruttori, pulsanti, icone) |
+| `RigCtl.cs` | Client del protocollo RigCtld per sintonizzare la radio |
 | `MakeIcon.cs` | Generatore dell'icona `app.ico` |
 | `app.ico` | Icona dell'applicazione (16–256 px) |
 | `build.bat` | Compila l'eseguibile |
@@ -100,6 +124,7 @@ Questo progetto non è affiliato a DX Summit né a OH8X.
 
 - Dati: [DX Summit](https://www.dxsummit.fi/) di OH8X
 - Icona dell'applicazione e icona *info*: basate sulle icone [Lucide](https://lucide.dev/) (licenza ISC)
+- Controllo radio: protocollo di rete di [Hamlib](https://hamlib.github.io/) `rigctld`
 
 ## Autore
 

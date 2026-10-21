@@ -47,6 +47,79 @@ namespace DXSummitViewer
                 g.FillEllipse(b, ox + 12 * s - 1.1f, oy + 8 * s - 1.1f, 2.2f, 2.2f);
         }
 
+        // Icona ingranaggio (impostazioni): 8 denti e foro centrale, tratto come le icone Lucide
+        public static void DrawGearIcon(Graphics g, Rectangle r, Color color)
+        {
+            float cx = r.X + r.Width / 2f, cy = r.Y + r.Height / 2f;
+            const int steps = 32;                    // 4 punti per dente: 2 in cima, 2 alla base
+            var pts = new PointF[steps];
+            for (int k = 0; k < steps; k++)
+            {
+                double a = (k + 0.5) * 2 * Math.PI / steps;
+                float rad = (k % 4) < 2 ? 7.2f : 5.2f;
+                pts[k] = new PointF(cx + rad * (float)Math.Cos(a), cy + rad * (float)Math.Sin(a));
+            }
+            using (var pen = new Pen(color, 1.5f))
+            {
+                pen.LineJoin = LineJoin.Round;
+                g.DrawPolygon(pen, pts);
+                g.DrawEllipse(pen, cx - 2.3f, cy - 2.3f, 4.6f, 4.6f);
+            }
+        }
+
+        // Icona sole (passa al tema chiaro): cerchio e 8 raggi
+        public static void DrawSunIcon(Graphics g, Rectangle r, Color color)
+        {
+            float cx = r.X + r.Width / 2f, cy = r.Y + r.Height / 2f;
+            using (var pen = new Pen(color, 1.5f))
+            {
+                pen.StartCap = LineCap.Round;
+                pen.EndCap = LineCap.Round;
+                g.DrawEllipse(pen, cx - 3.3f, cy - 3.3f, 6.6f, 6.6f);
+                for (int i = 0; i < 8; i++)
+                {
+                    double a = i * Math.PI / 4;
+                    float c = (float)Math.Cos(a), s = (float)Math.Sin(a);
+                    g.DrawLine(pen, cx + 5.6f * c, cy + 5.6f * s, cx + 7.4f * c, cy + 7.4f * s);
+                }
+            }
+        }
+
+        // Icona luna (passa al tema scuro): falce delimitata da due archi di cerchio
+        public static void DrawMoonIcon(Graphics g, Rectangle r, Color color)
+        {
+            var c1 = new PointF(r.X + r.Width / 2f, r.Y + r.Height / 2f);
+            var c2 = new PointF(c1.X + 3.6f, c1.Y - 3.2f);
+            const float R = 6.8f, rr = 5.4f;
+            // punti di intersezione dei due cerchi
+            float dx = c2.X - c1.X, dy = c2.Y - c1.Y, d = (float)Math.Sqrt(dx * dx + dy * dy);
+            float a = (R * R - rr * rr + d * d) / (2 * d), h = (float)Math.Sqrt(R * R - a * a);
+            var b = new PointF(c1.X + a * dx / d, c1.Y + a * dy / d);
+            var p1 = new PointF(b.X + h * -dy / d, b.Y + h * dx / d);
+            var p2 = new PointF(b.X - h * -dy / d, b.Y - h * dx / d);
+            using (var path = new GraphicsPath())
+            {
+                // arco esterno da p1 a p2 dalla parte lontana dal secondo cerchio, poi arco interno di ritorno
+                AddArcBetween(path, c1, R, p1, p2, pt => Dist(pt, c2) > rr);
+                AddArcBetween(path, c2, rr, p2, p1, pt => Dist(pt, c1) < R);
+                path.CloseFigure();
+                using (var pen = new Pen(color, 1.5f)) { pen.LineJoin = LineJoin.Round; g.DrawPath(pen, path); }
+            }
+        }
+
+        static float Dist(PointF p, PointF q) { float x = p.X - q.X, y = p.Y - q.Y; return (float)Math.Sqrt(x * x + y * y); }
+
+        // Aggiunge l'arco di cerchio da "from" a "to" nel verso il cui punto medio soddisfa "keep"
+        static void AddArcBetween(GraphicsPath path, PointF c, float rad, PointF from, PointF to, Func<PointF, bool> keep)
+        {
+            float a1 = (float)(Math.Atan2(from.Y - c.Y, from.X - c.X) * 180 / Math.PI);
+            float a2 = (float)(Math.Atan2(to.Y - c.Y, to.X - c.X) * 180 / Math.PI);
+            float sweep = ((a2 - a1) % 360 + 360) % 360;
+            double mid = (a1 + sweep / 2) * Math.PI / 180;
+            if (!keep(new PointF(c.X + rad * (float)Math.Cos(mid), c.Y + rad * (float)Math.Sin(mid)))) sweep -= 360;
+            path.AddArc(c.X - rad, c.Y - rad, 2 * rad, 2 * rad, a1, sweep);
+        }
+
         public static void DrawChevron(Graphics g, float cx, float cy)
         {
             using (var pen = new Pen(Theme.Muted, 1.6f))
