@@ -15,8 +15,8 @@ using System.Windows.Forms;
 [assembly: System.Reflection.AssemblyProduct("Dx Summit Viewer by IU0SKX")]
 [assembly: System.Reflection.AssemblyCompany("IU0SKX")]
 [assembly: System.Reflection.AssemblyCopyright("Copyright © 2026 IU0SKX")]
-[assembly: System.Reflection.AssemblyVersion("1.1.0.0")]
-[assembly: System.Reflection.AssemblyFileVersion("1.1.0.0")]
+[assembly: System.Reflection.AssemblyVersion("1.2.0.0")]
+[assembly: System.Reflection.AssemblyFileVersion("1.2.0.0")]
 
 namespace DXSummitViewer
 {

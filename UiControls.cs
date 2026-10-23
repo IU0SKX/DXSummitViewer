@@ -200,6 +200,18 @@ namespace DXSummitViewer
         [System.Runtime.InteropServices.DllImport("user32.dll")]
         static extern bool MoveWindow(IntPtr hwnd, int x, int y, int w, int h, bool repaint);
 
+        [System.Runtime.InteropServices.DllImport("uxtheme.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+        static extern int SetWindowTheme(IntPtr hwnd, string appName, string idList);
+
+        // Il tema visivo di Windows anima il passaggio del mouse disegnando con i colori chiari fuori da
+        // WM_PAINT, prima che PaintChrome possa ricoprirlo (flash bianchi nel tema scuro): lo si disattiva,
+        // tanto bordo, freccia e voci sono disegnati da noi.
+        protected override void OnHandleCreated(EventArgs e)
+        {
+            base.OnHandleCreated(e);
+            try { SetWindowTheme(Handle, "", ""); } catch { }
+        }
+
         protected override void OnSizeChanged(EventArgs e)
         {
             base.OnSizeChanged(e);
@@ -238,39 +250,67 @@ namespace DXSummitViewer
                 TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
         }
 
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        static extern bool InvalidateRect(IntPtr hwnd, IntPtr rect, bool erase);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        static extern bool ValidateRect(IntPtr hwnd, IntPtr rect);
+
         protected override void WndProc(ref Message m)
         {
+            if (m.Msg == WM_PAINT && m.WParam == IntPtr.Zero && IsHandleCreated && Width >= ButtonWidth + 8 && Height > 0)
+            {
+                PaintBuffered(ref m);
+                return;
+            }
             base.WndProc(ref m);
-            if (m.Msg == WM_PAINT) PaintChrome();
-            else if (m.Msg == 0x0005 && IsHandleCreated) CenterEdit(); // WM_SIZE
+            if (m.Msg == 0x0005 && IsHandleCreated) CenterEdit(); // WM_SIZE
+        }
+
+        // Il disegno nativo (bordo e pulsante chiari, evidenziati al passaggio del mouse) e il nostro
+        // vengono composti su una bitmap e copiati sullo schermo in un colpo solo, senza flash.
+        void PaintBuffered(ref Message m)
+        {
+            var edit = CenterEdit();
+            InvalidateRect(Handle, IntPtr.Zero, false); // tutto il controllo, la bitmap parte vuota
+            using (var bmp = new Bitmap(Width, Height, System.Drawing.Imaging.PixelFormat.Format32bppRgb))
+            using (var g = Graphics.FromImage(bmp))
+            {
+                IntPtr hdc = g.GetHdc();
+                try { m.WParam = hdc; base.WndProc(ref m); }
+                finally { g.ReleaseHdc(hdc); m.WParam = IntPtr.Zero; }
+                PaintChrome(g, edit);
+                using (var screen = Graphics.FromHwnd(Handle))
+                {
+                    // la casella modificabile è una finestra a sé e si disegna da sola
+                    if (edit != Rectangle.Empty) screen.ExcludeClip(edit);
+                    screen.DrawImageUnscaled(bmp, 0, 0);
+                }
+            }
+            ValidateRect(Handle, IntPtr.Zero);
         }
 
         // Ridisegna bordo e freccia sopra il disegno nativo, lasciando intatta l'area del testo
-        void PaintChrome()
+        void PaintChrome(Graphics g, Rectangle edit)
         {
-            if (!IsHandleCreated || Width < ButtonWidth + 8) return;
-            var edit = CenterEdit();
-            using (var g = Graphics.FromHwnd(Handle))
+            var r = new Rectangle(0, 0, Width, Height);
+            // si lascia intatta solo l'area del testo (la casella modificabile, o il testo disegnato in OnDrawItem)
+            var inner = edit != Rectangle.Empty ? edit : new Rectangle(3, 3, Width - 6 - ButtonWidth, Height - 6);
+            using (var clip = new Region(r))
             {
-                var r = new Rectangle(0, 0, Width, Height);
-                // si lascia intatta solo l'area del testo (la casella modificabile, o il testo disegnato in OnDrawItem)
-                var inner = edit != Rectangle.Empty ? edit : new Rectangle(3, 3, Width - 6 - ButtonWidth, Height - 6);
-                using (var clip = new Region(r))
-                {
-                    clip.Exclude(inner);
-                    g.SetClip(clip, CombineMode.Replace);
-                }
-                g.SmoothingMode = SmoothingMode.AntiAlias;
-                using (var b = new SolidBrush(Ui.ParentBack(this))) g.FillRectangle(b, r);
-                var rf = Ui.BorderRect(Inset, Inset, Width - 2 * Inset, Height - 2 * Inset);
-                using (var path = Ui.Round(rf, 5))
-                {
-                    using (var b = new SolidBrush(Theme.Field)) g.FillPath(b, path);
-                    var border = Focused || ContainsFocus || DroppedDown ? Theme.Accent : hover ? Theme.BorderHover : Theme.Border;
-                    using (var pen = new Pen(border)) g.DrawPath(pen, path);
-                }
-                Ui.DrawChevron(g, Width - Inset - 3 - ButtonWidth / 2f, Height / 2f);
+                clip.Exclude(inner);
+                g.SetClip(clip, CombineMode.Replace);
             }
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            using (var b = new SolidBrush(Ui.ParentBack(this))) g.FillRectangle(b, r);
+            var rf = Ui.BorderRect(Inset, Inset, Width - 2 * Inset, Height - 2 * Inset);
+            using (var path = Ui.Round(rf, 5))
+            {
+                using (var b = new SolidBrush(Theme.Field)) g.FillPath(b, path);
+                var border = Focused || ContainsFocus || DroppedDown ? Theme.Accent : hover ? Theme.BorderHover : Theme.Border;
+                using (var pen = new Pen(border)) g.DrawPath(pen, path);
+            }
+            Ui.DrawChevron(g, Width - Inset - 3 - ButtonWidth / 2f, Height / 2f);
         }
 
         protected override void OnMouseEnter(EventArgs e) { base.OnMouseEnter(e); hover = true; Invalidate(); }
